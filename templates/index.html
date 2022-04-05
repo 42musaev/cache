@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <title>Index</title>
+    <style>
+        details details {
+            padding-left: 5px;
+        }
+
+        .content {
+            padding-left: 10px;
+        }
+    </style>
+
+</head>
+<body>
+<!--Navbar-->
+<nav class="navbar navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand">Navbar</a>
+    </div>
+</nav>
+<!--Navbar-->
+
+<!--Content-->
+<div class="row mx-auto mt-2">
+    <div class="col-sm-6">
+        <h1>Tree db</h1>
+        <div class="card">
+            <div class="card-body">
+                <div id="tree"></div>
+                <button onclick="addToCache()" class="btn btn-primary">Add to cache</button>
+                <button onclick="resetDb()" class="btn btn-success mt-2">Reset DB</button>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6">
+        <h1>Tree Cache</h1>
+        <div class="card">
+            <div class="card-body">
+                <div id="tree_redis"></div>
+                <button onclick="addElementToCache()" type="submit" class="btn btn-primary">Add element</button>
+                <button onclick="editElement()" type="submit" class="btn btn-success">Edit element</button>
+                <button onclick="deleteElement()" type="submit" class="btn btn-danger">Delete element</button>
+                <button onclick="syncDb()" type="submit" class="btn btn-">Add all elements to DB</button>
+                <input id="redisValue" type="text"/>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+<!--Content-->
+
+
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+<script>
+    const host = "http://localhost:8000/"
+    let selectNodeCache = '';
+
+    function setSelectNodeCache(value) {
+        selectNodeCache = value;
+    }
+
+    let selectNodeDb = '';
+
+    function setSelectNodeDb(value) {
+        selectNodeDb = value;
+    }
+
+    const buildNavigation = (items, hash = '', isDb) => {
+        var next = (items, hash) => items.filter(item => item.parent_uuid === hash && item)
+        var output = '<ul>';
+
+        var subItems = next(items, hash)
+        for (var key in subItems) {
+            output += '<li>';
+            output += `
+<input type="radio" onclick="${isDb ? "setSelectNodeDb" : "setSelectNodeCache"}('${subItems[key].uuid}')" name="pk" value="${subItems[key].uuid}" />
+<span ${subItems[key].disable ? 'style="color:red"' : ''}>${subItems[key].value}</span>
+`;
+
+            var subItems2 = next(items, subItems[key].uuid)
+            if (subItems2) {
+                output += buildNavigation(items, subItems[key].uuid, isDb);
+            }
+
+            output += '</li>';
+        }
+
+        output += '</ul>';
+
+        return output;
+    }
+    const reFetchTreeData = async () => {
+        const {data: nodeDb} = await axios.get('/api/db/node');
+        document.querySelector('#tree').innerHTML = buildNavigation(nodeDb, '', true);
+        const {data: nodeCache} = await axios.get('/api/cache/node');
+        document.querySelector('#tree_redis').innerHTML = buildNavigation(nodeCache, '', false);
+    }
+    reFetchTreeData()
+
+    async function addToCache() {
+        await axios.post(`/api/db/node/${selectNodeDb}/copy`);
+        await reFetchTreeData();
+    }
+
+    async function addElementToCache() {
+        await axios.post('/api/cache/node',
+            {
+                "value": document.getElementById('redisValue').value,
+                "parent_uuid": selectNodeCache,
+                "disable": false
+            });
+        await reFetchTreeData();
+    }
+
+    async function editElement() {
+        await axios.patch(`/api/cache/node/${selectNodeCache}`,
+             {
+                    value: document.getElementById('redisValue').value
+                }
+            );
+        await reFetchTreeData();
+    }
+
+    async function deleteElement() {
+        await axios.delete(`/api/cache/node/${selectNodeCache}`);
+        await reFetchTreeData();
+    }
+
+
+    async function resetDb() {
+        await axios.post(`/api/db/reset`);
+        await reFetchTreeData()
+    }
+    async function syncDb() {
+        await axios.post(`/api/cache/sync-db`);
+        await reFetchTreeData()
+    }
+
+
+</script>
+
+</body>
+</html>
