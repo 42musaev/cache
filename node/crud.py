@@ -46,7 +46,7 @@ class NodeCrud:
         obj = await database.execute(query)
         return obj
 
-    async def delete_node_by_hash(self, uuid):
+    async def delete_node_by_uuid(self, uuid):
         query = delete(self.model).where(self.model.uuid == str(uuid))
         obj = await database.execute(query)
         return obj

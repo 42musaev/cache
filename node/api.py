@@ -9,9 +9,15 @@ from starlette.responses import JSONResponse
 from cache.conf import redis_cache
 from db.conf import Base, engine
 from db.utils import get_dump_data
+
 from node.crud import NodeCrud
 from node.models import Node
-from node.schema import NodeCreateSchema, NodeSchema, NodePatch
+from node.schema import (
+    NodeCreateSchema,
+    NodeSchema,
+    NodePatch,
+    NodeDelete
+)
 
 node = APIRouter(tags=["NodeApi"])
 
@@ -30,38 +36,34 @@ async def shutdown_event():
 @node.get('/db/node', response_model=List[NodeSchema], status_code=200)
 async def node_db_get():
     node_crud = NodeCrud(Node)
-    objs = await node_crud.get_all_node()
-    return objs
-
-
-@node.post('/db/node', response_model=NodeSchema, status_code=201)
-async def node_db_create(node: NodeCreateSchema):
-    node_crud = NodeCrud(Node)
-    data = node.dict()
-    obj = await node_crud.create_node(data=data)
-    return JSONResponse(
-        content=obj,
-        status_code=201
-    )
+    node_dicts = await node_crud.get_all_node()
+    return node_dicts
 
 
 @node.post('/db/node/{uuid}/copy', status_code=201)
 async def node_add_cache(uuid: UUID):
     node_crud = NodeCrud(Node)
-    obj = await node_crud.get_by_uuid(str(uuid))
-    if obj == 404:
+    node_object = await node_crud.get_by_uuid(str(uuid))
+    if node_object == 404:
         return JSONResponse(
             content={"detail": "object not found"},
             status_code=404
         )
-    node_obj = dict(obj)
-    await redis_cache.set(node_obj['uuid'], json.dumps(node_obj))
-    return JSONResponse(
-        content={"detail": "object added to cache"},
-        status_code=201
+    node_dict = dict(node_object)
+    disable = node_dict.pop('disable')
+
+    await redis_cache.hset(
+        key=node_dict['uuid'],
+        mapping={
+            "value": json.dumps(node_dict),
+            "disable": str(disable),
+        }
     )
+    return JSONResponse({"detail": "object copy to cache"}, status_code=201)
 
 
+#
+#
 @node.post('/db/reset', status_code=200)
 async def reset_db():
     Base.metadata.drop_all(bind=engine)
@@ -69,53 +71,66 @@ async def reset_db():
     node_crud = NodeCrud(Node)
     data = get_dump_data('db/json_dumps.json')
     await node_crud.create_init_data(data)
-    return {"detail": "database reset"}
+    return JSONResponse({"detail": "database reset"}, status_code=200)
 
 
 @node.get('/cache/node', status_code=200)
 async def get_cache():
-    return await redis_cache.get_all_dicts()
+    node_dicts = await redis_cache.get_all_node()
+    return JSONResponse(node_dicts, status_code=200)
 
 
-@node.post('/cache/node')
+@node.post('/cache/node', status_code=201)
 async def node_create_cache(node: NodeCreateSchema):
     data = node.dict()
     node_data = {
         "value": data['value'],
         "uuid": str(uuid.uuid4()),
         "parent_uuid": data['parent_uuid'],
-        "disable": False
     }
-    await redis_cache.set(node_data['uuid'], json.dumps(node_data))
-    return node_data
+    await redis_cache.hset(
+        key=node_data['uuid'],
+        mapping={
+            "value": json.dumps(node_data),
+            "disable": str(False),
+        }
+    )
+    return JSONResponse(node_data, status_code=201)
 
 
-@node.patch('/cache/node/{uuid}')
+@node.patch('/cache/node/{uuid}', status_code=200)
 async def node_patch_cache(uuid: UUID, node: NodePatch):
-    json_dict = await redis_cache.get(str(uuid))
-    node_object = await redis_cache.json_to_dict(json_dict)
-    if not node_object:
-        return JSONResponse(
-            content={"detail": "object not found"},
-            status_code=404
+    node_dict = await redis_cache.hget_dict(str(uuid), "value")
+    node_dict['value'] = node.value
+
+    await redis_cache.hset(
+        key=str(uuid),
+        mapping={
+            "value": json.dumps(node_dict),
+        }
+    )
+    return JSONResponse(node_dict, status_code=200)
+
+
+@node.delete('/cache/node/{uuid}', status_code=200)
+async def node_delete_cache(uuids: NodeDelete):
+    for uuid in uuids.uuids:
+        await redis_cache.hset(
+            key=str(uuid),
+            mapping={
+                "disable": str(True),
+            }
+
         )
-    node_object['value'] = node.value
-    await redis_cache.set(str(uuid), json.dumps(node_object))
-    return node_object
-
-
-@node.delete('/cache/node/{uuid}')
-async def node_delete_cache(uuid: UUID):
-    json_object = await redis_cache.get(str(uuid))
-    node_dict = await redis_cache.json_to_dict(json_object)
-    node_dict['disable'] = True
-    await redis_cache.set(node_dict['uuid'], json.dumps(node_dict))
-    return JSONResponse(content=node_dict, status_code=200)
+    return JSONResponse(
+        {"detail": "objects deleted"},
+        status_code=200
+    )
 
 
 @node.post('/cache/sync-db', status_code=200)
 async def cache_sync_db():
-    list_dicts = await redis_cache.get_all_dicts()
+    list_dicts = await redis_cache.get_all_node()
     node_crud = NodeCrud(Node)
     await node_crud.create_many_row(list_dicts)
     return JSONResponse(

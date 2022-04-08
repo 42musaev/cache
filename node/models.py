@@ -16,4 +16,3 @@ class Node(Base):
     uuid = Column(String(256), unique=True, nullable=True)
     parent_uuid = Column(String(256), nullable=True)
     disable = Column(Boolean, default=False)
-

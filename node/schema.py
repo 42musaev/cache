@@ -1,3 +1,5 @@
+from typing import List
+
 from pydantic import BaseModel
 
 
@@ -15,3 +17,7 @@ class NodeCreateSchema(BaseModel):
 
 class NodePatch(BaseModel):
     value: str
+
+
+class NodeDelete(BaseModel):
+    uuids: List[str]

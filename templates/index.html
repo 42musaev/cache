@@ -34,7 +34,7 @@
             <div class="card-body">
                 <div id="tree"></div>
                 <button onclick="addToCache()" class="btn btn-primary">Add to cache</button>
-                <button onclick="resetDb()" class="btn btn-success mt-2">Reset DB</button>
+                <button onclick="resetDb()" class="btn btn-success">Reset DB</button>
             </div>
         </div>
     </div>
@@ -46,7 +46,7 @@
                 <button onclick="addElementToCache()" type="submit" class="btn btn-primary">Add element</button>
                 <button onclick="editElement()" type="submit" class="btn btn-success">Edit element</button>
                 <button onclick="deleteElement()" type="submit" class="btn btn-danger">Delete element</button>
-                <button onclick="syncDb()" type="submit" class="btn btn-">Add all elements to DB</button>
+                <button onclick="syncDb()" type="submit" class="btn btn-info">Add all elements to DB</button>
                 <input id="redisValue" type="text"/>
             </div>
         </div>
@@ -59,6 +59,20 @@
 <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 
 <script>
+
+    function getAllChildRadios() {
+        const selectedRadio = document.querySelector('#tree_redis input[name="pk"]:checked')
+        if (!selectedRadio) {
+            return []
+        }
+        let childRadios = Array.from(
+                selectedRadio.parentElement.querySelectorAll('input[name="pk"]')
+        ).map(radio => radio.value)
+
+        return childRadios
+    }
+
+
     const host = "http://localhost:8000/"
     let selectNodeCache = '';
 
@@ -100,7 +114,14 @@
         const {data: nodeDb} = await axios.get('/api/db/node');
         document.querySelector('#tree').innerHTML = buildNavigation(nodeDb, '', true);
         const {data: nodeCache} = await axios.get('/api/cache/node');
-        document.querySelector('#tree_redis').innerHTML = buildNavigation(nodeCache, '', false);
+        const postNodeCache = nodeCache.map((item => {
+            if (nodeCache.findIndex((itemLocal) => itemLocal.uuid === item.parent_uuid) !== -1) {
+                return item;
+            } else {
+                return {...item, parent_uuid: ''}
+            }
+        }))
+        document.querySelector('#tree_redis').innerHTML = buildNavigation(postNodeCache, '', false);
     }
     reFetchTreeData()
 
@@ -111,25 +132,29 @@
 
     async function addElementToCache() {
         await axios.post('/api/cache/node',
-            {
-                "value": document.getElementById('redisValue').value,
-                "parent_uuid": selectNodeCache,
-                "disable": false
-            });
+                {
+                    "value": document.getElementById('redisValue').value,
+                    "parent_uuid": selectNodeCache,
+                    "disable": false
+                });
         await reFetchTreeData();
     }
 
     async function editElement() {
         await axios.patch(`/api/cache/node/${selectNodeCache}`,
-             {
+                {
                     value: document.getElementById('redisValue').value
                 }
-            );
+        );
         await reFetchTreeData();
     }
 
     async function deleteElement() {
-        await axios.delete(`/api/cache/node/${selectNodeCache}`);
+        await axios.delete(`/api/cache/node/${selectNodeCache}`, {
+            data: {
+                uuids: getAllChildRadios()
+            }
+        });
         await reFetchTreeData();
     }
 
@@ -138,6 +163,7 @@
         await axios.post(`/api/db/reset`);
         await reFetchTreeData()
     }
+
     async function syncDb() {
         await axios.post(`/api/cache/sync-db`);
         await reFetchTreeData()
